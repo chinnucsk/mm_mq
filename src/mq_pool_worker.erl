@@ -9,9 +9,12 @@
 -export([start_link/1]).
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2,
          code_change/3]).
+-export([spawn_subscriber/3]).
 
 -include("../../deps/amqp_client/include/amqp_client.hrl").
 -include("include/amqp_exchanges.hrl").
+
+-export([state/0, state/1]).
 
 start_link(Args) ->
     gen_server:start_link(?MODULE, Args, []).
@@ -47,8 +50,58 @@ handle_call({send_message, Route, Payload}, _From, #amqp_worker_state{connection
 handle_call({receive_message, Route}, _From, #amqp_worker_state{connection=Conn}=State) ->
     {reply, amqp_basic_get_message(State#amqp_worker_state.channel, Route), State};
 
+handle_call({setup_consumer, Channel, QueueKey, TotQueues, Durable}, _From, #amqp_worker_state{connection=Conn}=State) ->
+    {reply, amqp_setup_consumers(Channel, QueueKey, TotQueues, Durable), State};
+
+handle_call(state, _From, State) ->
+  {reply, State, State};
+
+handle_call({state}, _From, State) ->
+  {reply, State, State};
+
 handle_call(_Request, _From, State) ->
     {reply, ok, State}.
+
+subscriber_read_messages(Timeouts, Pid) ->
+    receive
+        {#'basic.deliver'{consumer_tag=_ConsumerTag, delivery_tag=_DeliveryTag, redelivered=_Redelivered, exchange=_Exchange, routing_key=RoutingKey}, Content} ->
+            #amqp_msg{payload = Payload} = Content,
+            Pid ! {new, Payload},
+            subscriber_read_messages(0, Pid);
+        Any ->
+            log:warning({"received unexpected Any: ", Any}),
+            subscriber_read_messages(0, Pid)
+    after 1000 ->
+        case Timeouts of
+            0 ->
+                Timeouts2 = Timeouts + 1,
+                subscriber_read_messages(Timeouts2, Pid);
+            5 ->
+                pass;
+            _ ->
+                Timeouts2 = Timeouts + 1,
+                subscriber_read_messages(Timeouts2, Pid)
+        end
+    end.
+
+spawn_subscriber(Channel, Route, Pid)->
+    BasicConsume = #'basic.consume'{queue = Route,
+                                    consumer_tag = <<"">>,
+                                    no_ack = true},
+    #'basic.consume_ok'{consumer_tag = ConsumerTag}
+                     = amqp_channel:subscribe(Channel, BasicConsume, self()),
+    receive
+        #'basic.consume_ok'{consumer_tag = ConsumerTag} -> ok
+    end,
+
+    subscriber_read_messages(0, Pid),
+
+    BasicCancel = #'basic.cancel'{consumer_tag = ConsumerTag},
+    #'basic.cancel_ok'{consumer_tag = ConsumerTag} = amqp_channel:call(Channel,BasicCancel).
+
+handle_cast({subscribe_process, Route, Pid}, #amqp_worker_state{channel=Channel}=State) ->    
+    erlang:spawn(?MODULE, spawn_subscriber, [Channel, Route, Pid]),
+    {noreply, State};
 
 handle_cast(_Msg, State) ->
     {noreply, State}.
@@ -62,6 +115,13 @@ terminate(_Reason, #amqp_worker_state{connection=Conn}) ->
 
 code_change(_OldVsn, State, _Extra) ->
     {ok, State}.
+
+state(Module) ->
+  gen_server:call(Module, state, infinity).
+
+state() ->
+  state(?MODULE).
+
 
 
 %%--------------------------------------------------------------------
@@ -88,7 +148,8 @@ amqp_send_message(RoutingKey, Payload, State) ->
     Exchange =  State#amqp_worker_state.exchange,
     BasicPublish = #'basic.publish'{exchange    = Exchange, 
                                     routing_key = RoutingKey},
-    NewPayload = utils:payload_encode(Payload),
+    %NewPayload = utils:payload_encode(Payload),
+    NewPayload = (Payload),
     {ok, Durable} = config:get(mq_durable_queues),
     case Durable of
       true ->
@@ -119,7 +180,8 @@ amqp_basic_get_message(Channel, Queue) ->
      case amqp_channel:call(Channel, #'basic.get'{queue = Queue, no_ack = true}) of
         {#'basic.get_ok'{}, Content} ->
           #amqp_msg{payload = Payload} = Content,
-          {ok, utils:payload_decode(Payload)};
+          %{ok, utils:payload_decode(Payload)};
+          {ok, (Payload)};
         Else ->
           {error, Else}
      end.

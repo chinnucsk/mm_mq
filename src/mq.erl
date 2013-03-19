@@ -115,20 +115,20 @@ init([]) ->
   {ok, Durable} = application:get_env(optimed, mq_durable_queues),
   {ok, Params} = config:get(mq_connection_params),
   AMQParams = #amqp_params_network{
-      username =  proplists:get_value(username, Params),
-      password =  proplists:get_value(password, Params),
-      host =  proplists:get_value(host, Params),
+      username     =  proplists:get_value(username, Params),
+      password     =  proplists:get_value(password, Params),
+      host         =  proplists:get_value(host, Params),
       virtual_host =  proplists:get_value(virtual_host, Params),
-      channel_max =  proplists:get_value(channel_max, Params)
+      channel_max  =  proplists:get_value(channel_max, Params)
   },
   case ampq_connect_and_get_channel(AMQParams, Durable) of
   {ok, {Connection, Channel}} ->
       {ok, #state{
-         channel = Channel,
+         channel    = Channel,
          connection = Connection,
-         exchange = ?EXCHANGE,
-         op_cnt = 1,
-         init_time = utils:unix_timestamp()
+         exchange   = ?EXCHANGE,
+         op_cnt     = 1,
+         init_time  = utils:unix_timestamp()
         }
       };
   _Else ->
@@ -205,8 +205,8 @@ ampq_connect_and_get_channel(Params, Durable) ->
     {ok, Channel} = amqp_connection:open_channel(Connection),
     ExchangeDeclare = #'exchange.declare'{
       exchange = ?EXCHANGE, 
-      type = <<"topic">>,
-      durable = Durable
+      type     = <<"topic">>,
+      durable  = Durable
      },
     #'exchange.declare_ok'{} = amqp_channel:call(Channel, ExchangeDeclare),
     {ok, {Connection,Channel}}.
@@ -279,7 +279,7 @@ amqp_send_message(RoutingKey, Payload, State) ->
       true ->
           Msg = #amqp_msg{
             payload = NewPayload,
-            props = #'P_basic'{delivery_mode=2}
+            props   = #'P_basic'{delivery_mode=2}
            };
       false ->
           Msg = #amqp_msg{

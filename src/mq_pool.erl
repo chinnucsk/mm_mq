@@ -7,7 +7,7 @@
 -behaviour(supervisor).
 
 %% API
--export([send_msg/3, receive_msg/2]).
+-export([send_msg/3, receive_msg/2, get_state/1, setup_consumer/5, subscribe_process/3]).
 -export([start_link/0]).
 -export([start_link/0]).
 
@@ -50,3 +50,18 @@ receive_msg(PoolName, Route) ->
     poolboy:transaction(PoolName, fun(Worker) ->
         gen_server:call(Worker, {receive_message, Route})
     end).
+
+get_state(PoolName)->
+    poolboy:transaction(PoolName, fun(Worker) ->
+        gen_server:call(Worker, {state})
+    end).    
+
+setup_consumer(PoolName, Channel, QueueKey, TotQueues, Durable)->
+    poolboy:transaction(PoolName, fun(Worker) ->
+        gen_server:call(Worker, {setup_consumer, Channel, QueueKey, TotQueues, Durable})
+    end).        
+
+subscribe_process(PoolName, Route, Pid)->
+    poolboy:transaction(PoolName, fun(Worker) ->
+        gen_server:cast(Worker, {subscribe_process, Route, Pid})
+    end).    
